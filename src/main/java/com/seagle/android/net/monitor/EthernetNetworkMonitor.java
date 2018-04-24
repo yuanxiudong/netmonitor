@@ -9,30 +9,31 @@ import android.os.Build;
 import android.support.annotation.RequiresApi;
 import android.util.Log;
 
+import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_NETWORK_INFO;
+import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_NETWORK_STATE;
+import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_PRE_NETWORK_INFO;
+import static com.seagle.android.net.monitor.NetworkMonitor.STATE_DISCONNECTED;
+import static com.seagle.android.net.monitor.NetworkMonitor.STATE_CONNECTED;
+
 /**
  * Ethernet monitor.
+ * <p>
  * Created by seagle on 2018/4/23.
  */
 
 public class EthernetNetworkMonitor extends NetworkMonitor.NetStateMachine {
+
     private static final String TAG = "EthernetNetworkMonitor";
 
     /**
-     * Ethernet network connected.
-     * It has extras {@link #EXTRA_NETWORK_INFO}.
+     * Ethernet network state changed.
+     * App can get the broadcast event ethernet network state by extra {@link NetworkMonitor#EXTRA_NETWORK_STATE},if has two state value:<br>
+     * {@link NetworkMonitor#STATE_DISCONNECTED} means current ethernet network is disconnect,
+     * if previous state is connected and app can get previous network info by extra {@link NetworkMonitor#EXTRA_PRE_NETWORK_INFO},may be null<br>
+     * {@link NetworkMonitor#STATE_CONNECTED} means current ethernet network is connected,app can get current ethernet network
+     * info by extra {@link NetworkMonitor#EXTRA_NETWORK_INFO}<br>
      */
-    public static final String ACTION_ETHERNET_NETWORK_CONNECTED = "com.seagle.android.net.monitor.ACTION_ETHERNET_NETWORK_CONNECTED";
-
-    /**
-     * Ethernet network disconnected.
-     * It has previous network info extras {@link #EXTRA_NETWORK_INFO},
-     */
-    public static final String ACTION_ETHERNET_NETWORK_DISCONNECTED = "com.seagle.android.net.monitor.ACTION_ETHERNET_NETWORK_DISCONNECTED";
-
-    /**
-     * Network info extras.
-     */
-    public static final String EXTRA_NETWORK_INFO = "networkInfo";
+    public static final String ACTION_ETHERNET_STATE_CHANGED = "com.seagle.android.net.monitor.ACTION_ETHERNET_STATE_CHANGED";
 
     EthernetNetworkMonitor(Context context) {
         super(context);
@@ -42,17 +43,19 @@ public class EthernetNetworkMonitor extends NetworkMonitor.NetStateMachine {
     protected void notifyWifiState(boolean connected, NetworkInfo networkInfo) {
         if (connected) {
             mNetworkInfo = networkInfo;
-            Intent intent = new Intent(ACTION_ETHERNET_NETWORK_CONNECTED);
-            intent.putExtra(EXTRA_NETWORK_INFO, networkInfo);
-            mContext.sendStickyBroadcast(intent);
+            Intent broadCastIntent = new Intent(ACTION_ETHERNET_STATE_CHANGED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_CONNECTED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mNetworkInfo);
+            mContext.sendStickyBroadcast(broadCastIntent);
             Log.i(TAG, "Ethernet network connected: " + mNetworkInfo);
         } else {
             Log.i(TAG, "Ethernet network disconnected: " + mNetworkInfo);
-            Intent intent = new Intent(ACTION_ETHERNET_NETWORK_DISCONNECTED);
+            Intent broadCastIntent = new Intent(ACTION_ETHERNET_STATE_CHANGED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_DISCONNECTED);
             if (mNetworkInfo != null) {
-                intent.putExtra(EXTRA_NETWORK_INFO, mNetworkInfo);
+                broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mNetworkInfo);
             }
-            mContext.sendStickyBroadcast(intent);
+            mContext.sendStickyBroadcast(broadCastIntent);
             mNetworkInfo = null;
         }
     }
@@ -63,5 +66,14 @@ public class EthernetNetworkMonitor extends NetworkMonitor.NetStateMachine {
         NetworkRequest.Builder builder = new NetworkRequest.Builder();
         builder.addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET);
         return builder.build();
+    }
+
+    @Override
+    void stop() {
+        if (mContext != null) {
+            Intent broadCastIntent = new Intent(ACTION_ETHERNET_STATE_CHANGED);
+            mContext.removeStickyBroadcast(broadCastIntent);
+        }
+        super.stop();
     }
 }

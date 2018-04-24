@@ -15,7 +15,6 @@ import android.util.Log;
 import java.lang.ref.SoftReference;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -27,26 +26,48 @@ import java.util.List;
 public class NetworkMonitor {
 
     private static final String TAG = "SENetworkMonitor";
+
     /**
-     * Network connected.
+     * Network state changed.
+     * There are two state can get by extra {@link #EXTRA_NETWORK_STATE}: <br>
+     * {@link #STATE_DISCONNECTED} means current system network is disconnect,
+     * if previous state is connected and app can get previous network info by extra {@link #EXTRA_PRE_NETWORK_INFO},may be null<br>
+     * {@link #STATE_CONNECTED} means current system network is connected,app can get current network info by extra {@link #EXTRA_NETWORK_INFO}<br>
      */
-    public static final String ACTION_NET_CONNECTED = "com.seagle.android.net.monitor.ACTION_NET_CONNECTED";
+    public static final String ACTION_NETWORK_STATE_CHANGED = "com.seagle.android.net.monitor.ACTION_NETWORK_STATE_CHANGED";
+
     /**
-     * Network disconnected.
+     * Network type changed.
+     * Means network changed,such as form wifi to mobile,or from mobile to wifi,or form ethernet to wifi and so on.
+     * app can get previous network info by extra {@link #EXTRA_PRE_NETWORK_INFO} and get current network info by extra {@link #EXTRA_NETWORK_INFO}<br>
      */
-    public static final String ACTION_NET_DISCONNECTED = "com.seagle.android.net.monitor.ACTION_NET_DISCONNECTED";
+    public static final String ACTION_NETWORK_TYPE_CHANGED = "com.seagle.android.net.monitor.ACTION_NETWORK_TYPE_CHANGED";
+
     /**
-     * Network changed.
+     * Network state change broad action extra,represent the current broadcast event network state.
      */
-    public static final String ACTION_NET_CHANGED = "com.seagle.android.net.monitor.ACTION_NET_CHANGED";
+    public static final String EXTRA_NETWORK_STATE = "networkState";
+
+    /**
+     * The network state value.network disconnected.
+     */
+    public static final int STATE_DISCONNECTED = 0;
+
+    /**
+     * The network state value.network connected.
+     */
+    public static final int STATE_CONNECTED = 1;
+
     /**
      * Network info extras.
      */
     public static final String EXTRA_NETWORK_INFO = "networkInfo";
+
     /**
      * The previous Network info extras.
      */
-    public static final String EXTRA_PRE_NETWORK_INFO = "networkInfo";
+    public static final String EXTRA_PRE_NETWORK_INFO = "preNetworkInfo";
+
     private SoftReference<Context> mContext;
     private volatile boolean mStarted;
     private volatile NetworkInfo mActiveNetworkInfo;
@@ -67,7 +88,6 @@ public class NetworkMonitor {
 
     private NetworkMonitor() {
         mConnectionChangeReceiver = new ConnectionChangeReceiver();
-
     }
 
     /**
@@ -81,9 +101,9 @@ public class NetworkMonitor {
                 throw new IllegalArgumentException("Context should not be null!");
             }
 
-            mWifiStateMachine = new WifiNetworkMonitor(context);
-            mMobileStateMachine = new MobileNetworkMonitor(context);
-            mEthernetStateMachine = new EthernetNetworkMonitor(context);
+            mWifiStateMachine = new WifiNetworkMonitor(context.getApplicationContext());
+            mMobileStateMachine = new MobileNetworkMonitor(context.getApplicationContext());
+            mEthernetStateMachine = new EthernetNetworkMonitor(context.getApplicationContext());
 
             mStarted = true;
             mContext = new SoftReference<>(context.getApplicationContext());
@@ -95,13 +115,9 @@ public class NetworkMonitor {
             }
             mActiveNetworkInfo = mConnectivityManager.getActiveNetworkInfo();
             if (mActiveNetworkInfo == null || mActiveNetworkInfo.getState() != NetworkInfo.State.CONNECTED) {
-                Intent broadCastIntent = new Intent(ACTION_NET_DISCONNECTED);
-                broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mActiveNetworkInfo);
-                context.sendStickyBroadcast(broadCastIntent);
+                notifyNetworkDisconnected(context, mActiveNetworkInfo);
             } else {
-                Intent broadCastIntent = new Intent(ACTION_NET_CONNECTED);
-                broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mActiveNetworkInfo);
-                context.sendStickyBroadcast(broadCastIntent);
+                notifyNetworkConnected(context, mActiveNetworkInfo);
             }
             initNetwork();
             mWifiStateMachine.start();
@@ -110,6 +126,31 @@ public class NetworkMonitor {
         }
     }
 
+
+    /**
+     * Stop monitor network.
+     */
+    public synchronized void stopMonitoring() {
+        if (mStarted) {
+            mStarted = false;
+            if (mContext != null) {
+                Context context = mContext.get();
+                if (context != null) {
+                    Intent broadCastIntent = new Intent(ACTION_NETWORK_STATE_CHANGED);
+                    context.removeStickyBroadcast(broadCastIntent);
+                    context.unregisterReceiver(mConnectionChangeReceiver);
+                }
+            }
+            mWifiStateMachine.stop();
+            mMobileStateMachine.stop();
+            mEthernetStateMachine.stop();
+            mActiveNetworkInfo = null;
+        }
+    }
+
+    /**
+     * Init network status.
+     */
     private void initNetwork() {
         List<NetworkInfo> networkInfoList = new ArrayList<>();
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
@@ -138,22 +179,48 @@ public class NetworkMonitor {
     }
 
     /**
-     * Stop monitor network.
+     * Notify network disconnected.
+     *
+     * @param context        context
+     * @param preNetworkInfo previous network info
      */
-    public synchronized void stopMonitoring() {
-        if (mStarted) {
-            mStarted = false;
-            if (mContext != null) {
-                Context context = mContext.get();
-                if (context != null) {
-                    context.unregisterReceiver(mConnectionChangeReceiver);
-                }
-            }
-            mWifiStateMachine.stop();
-            mMobileStateMachine.stop();
-            mEthernetStateMachine.stop();
-            mActiveNetworkInfo = null;
-        }
+    private void notifyNetworkDisconnected(Context context, NetworkInfo preNetworkInfo) {
+        Intent broadCastIntent = new Intent(ACTION_NETWORK_STATE_CHANGED);
+        broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_DISCONNECTED);
+        broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, preNetworkInfo);
+        context.sendStickyBroadcast(broadCastIntent);
+    }
+
+    /**
+     * Notify network connected.
+     *
+     * @param context        context
+     * @param curNetworkInfo current network info
+     */
+    private void notifyNetworkConnected(Context context, NetworkInfo curNetworkInfo) {
+        Intent broadCastIntent = new Intent(ACTION_NETWORK_STATE_CHANGED);
+        broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_CONNECTED);
+        broadCastIntent.putExtra(EXTRA_NETWORK_INFO, curNetworkInfo);
+        context.sendStickyBroadcast(broadCastIntent);
+    }
+
+    /**
+     * Notify network changed.
+     *
+     * @param context        context
+     * @param preNetworkInfo previous network info
+     * @param curNetworkInfo current network info
+     */
+    private void notifyNetworkChanged(Context context, NetworkInfo preNetworkInfo, NetworkInfo curNetworkInfo) {
+        Intent broadCastIntent = new Intent(ACTION_NETWORK_TYPE_CHANGED);
+        broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, preNetworkInfo);
+        broadCastIntent.putExtra(EXTRA_NETWORK_INFO, curNetworkInfo);
+        context.sendBroadcast(broadCastIntent);
+
+        Intent intent = new Intent(ACTION_NETWORK_STATE_CHANGED);
+        intent.putExtra(EXTRA_NETWORK_STATE, STATE_CONNECTED);
+        intent.putExtra(EXTRA_NETWORK_INFO, curNetworkInfo);
+        context.sendStickyBroadcast(intent);
     }
 
     /**
@@ -170,9 +237,7 @@ public class NetworkMonitor {
                         mMobileStateMachine.notifyWifiState(false, null);
                         mEthernetStateMachine.notifyWifiState(false, null);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_DISCONNECTED);
-                    broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mActiveNetworkInfo);
-                    context.sendBroadcast(broadCastIntent);
+                    notifyNetworkDisconnected(context, mActiveNetworkInfo);
                     mActiveNetworkInfo = null;
                     Log.i(TAG, "Network disconnected!");
                 }
@@ -183,25 +248,19 @@ public class NetworkMonitor {
                     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) {
                         mMobileStateMachine.notifyWifiState(true, mActiveNetworkInfo);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_CONNECTED);
-                    broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mActiveNetworkInfo);
-                    context.sendStickyBroadcast(broadCastIntent);
+                    notifyNetworkConnected(context, mActiveNetworkInfo);
                 } else if (ConnectivityManager.TYPE_WIFI == activeNetworkInfo.getType()) {
                     mActiveNetworkInfo = activeNetworkInfo;
                     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) {
                         mWifiStateMachine.notifyWifiState(true, mActiveNetworkInfo);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_CONNECTED);
-                    broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mActiveNetworkInfo);
-                    context.sendStickyBroadcast(broadCastIntent);
+                    notifyNetworkConnected(context, mActiveNetworkInfo);
                 } else if (ConnectivityManager.TYPE_ETHERNET == activeNetworkInfo.getType()) {
                     mActiveNetworkInfo = activeNetworkInfo;
                     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) {
                         mEthernetStateMachine.notifyWifiState(true, mActiveNetworkInfo);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_CONNECTED);
-                    broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mActiveNetworkInfo);
-                    context.sendStickyBroadcast(broadCastIntent);
+                    notifyNetworkConnected(context, mActiveNetworkInfo);
                 } else {
                     Log.i(TAG, "Other Network connected!");
                     mActiveNetworkInfo = null;
@@ -214,11 +273,9 @@ public class NetworkMonitor {
                         mWifiStateMachine.notifyWifiState(false, null);
                         mEthernetStateMachine.notifyWifiState(false, null);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_CHANGED);
-                    broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mActiveNetworkInfo);
-                    broadCastIntent.putExtra(EXTRA_NETWORK_INFO, activeNetworkInfo);
+                    NetworkInfo preNetworkInfo = mActiveNetworkInfo;
                     mActiveNetworkInfo = activeNetworkInfo;
-                    context.sendStickyBroadcast(broadCastIntent);
+                    notifyNetworkChanged(context, preNetworkInfo, mActiveNetworkInfo);
                 } else if (ConnectivityManager.TYPE_WIFI == activeNetworkInfo.getType()) {
                     Log.i(TAG, "Network change to wifi: " + activeNetworkInfo);
                     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) {
@@ -226,11 +283,9 @@ public class NetworkMonitor {
                         mMobileStateMachine.notifyWifiState(false, null);
                         mEthernetStateMachine.notifyWifiState(false, null);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_CHANGED);
-                    broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mActiveNetworkInfo);
-                    broadCastIntent.putExtra(EXTRA_NETWORK_INFO, activeNetworkInfo);
+                    NetworkInfo preNetworkInfo = mActiveNetworkInfo;
                     mActiveNetworkInfo = activeNetworkInfo;
-                    context.sendStickyBroadcast(broadCastIntent);
+                    notifyNetworkChanged(context, preNetworkInfo, mActiveNetworkInfo);
                 } else if (ConnectivityManager.TYPE_ETHERNET == activeNetworkInfo.getType()) {
                     Log.i(TAG, " Network change to ethernet: " + activeNetworkInfo);
                     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) {
@@ -238,11 +293,9 @@ public class NetworkMonitor {
                         mWifiStateMachine.notifyWifiState(false, null);
                         mMobileStateMachine.notifyWifiState(false, null);
                     }
-                    Intent broadCastIntent = new Intent(ACTION_NET_CHANGED);
-                    broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mActiveNetworkInfo);
-                    broadCastIntent.putExtra(EXTRA_NETWORK_INFO, activeNetworkInfo);
+                    NetworkInfo preNetworkInfo = mActiveNetworkInfo;
                     mActiveNetworkInfo = activeNetworkInfo;
-                    context.sendStickyBroadcast(broadCastIntent);
+                    notifyNetworkChanged(context, preNetworkInfo, mActiveNetworkInfo);
                 } else {
                     Log.i(TAG, "Other Network connected!");
                     mActiveNetworkInfo = null;
@@ -298,6 +351,7 @@ public class NetworkMonitor {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 mConnectivityManager.unregisterNetworkCallback(mNetCallback);
             }
+            mContext = null;
         }
 
         protected abstract NetworkRequest getNetRequest();

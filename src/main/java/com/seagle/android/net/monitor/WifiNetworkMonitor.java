@@ -11,29 +11,30 @@ import android.os.Build;
 import android.support.annotation.RequiresApi;
 import android.util.Log;
 
+import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_NETWORK_INFO;
+import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_NETWORK_STATE;
+import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_PRE_NETWORK_INFO;
+import static com.seagle.android.net.monitor.NetworkMonitor.STATE_DISCONNECTED;
+import static com.seagle.android.net.monitor.NetworkMonitor.STATE_CONNECTED;
+
 /**
  * Wifi monitor.
  * Created by seagle on 2018/4/23.
  */
 
 public class WifiNetworkMonitor extends NetworkMonitor.NetStateMachine {
+
     private static final String TAG = "WifiNetworkMonitor";
+
     /**
      * WiFi network connected.
-     * It has extras {@link #EXTRA_NETWORK_INFO} and {@link #EXTRA_WIFI_INFO}.
+     * App can get the broadcast event wifi network state by extra {@link NetworkMonitor#EXTRA_NETWORK_STATE},if has two state value:<br>
+     * {@link NetworkMonitor#STATE_DISCONNECTED} means current wifi network is disconnect,
+     * if previous state is connected and app can get previous network info by extra {@link NetworkMonitor#EXTRA_PRE_NETWORK_INFO},may be null<br>
+     * {@link NetworkMonitor#STATE_CONNECTED} means current wifi network is connected,app can get current wifi network
+     * info by extra {@link NetworkMonitor#EXTRA_NETWORK_INFO} and get wifi info by {@link #EXTRA_WIFI_INFO}<br>
      */
-    public static final String ACTION_WIFI_NETWORK_CONNECTED = "com.seagle.android.net.monitor.ACTION_WIFI_NETWORK_CONNECTED";
-
-    /**
-     * WiFi network disconnected.
-     * It has previous network info extras {@link #EXTRA_NETWORK_INFO} and {@link #EXTRA_WIFI_INFO}.
-     */
-    public static final String ACTION_WIFI_NETWORK_DISCONNECTED = "com.seagle.android.net.monitor.ACTION_WIFI_NETWORK_DISCONNECTED";
-
-    /**
-     * Network info extras.
-     */
-    public static final String EXTRA_NETWORK_INFO = "networkInfo";
+    public static final String ACTION_WIFI_STATE_CHANGED = "com.seagle.android.net.monitor.ACTION_WIFI_STATE_CONNECTED";
 
     /**
      * WiFi info extras.
@@ -43,7 +44,7 @@ public class WifiNetworkMonitor extends NetworkMonitor.NetStateMachine {
     private volatile WifiInfo mWifiInfo;
     private WifiManager mWifiManager;
 
-    public WifiNetworkMonitor(Context context) {
+    WifiNetworkMonitor(Context context) {
         super(context);
         mWifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
     }
@@ -53,19 +54,21 @@ public class WifiNetworkMonitor extends NetworkMonitor.NetStateMachine {
         if (connected) {
             mNetworkInfo = networkInfo;
             mWifiInfo = mWifiManager.getConnectionInfo();
-            Intent intent = new Intent(ACTION_WIFI_NETWORK_CONNECTED);
-            intent.putExtra(EXTRA_NETWORK_INFO, networkInfo);
-            intent.putExtra(EXTRA_WIFI_INFO, mWifiInfo);
-            mContext.sendStickyBroadcast(intent);
+            Intent broadCastIntent = new Intent(ACTION_WIFI_STATE_CHANGED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_CONNECTED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mNetworkInfo);
+            broadCastIntent.putExtra(EXTRA_WIFI_INFO, mWifiInfo);
+            mContext.sendStickyBroadcast(broadCastIntent);
             Log.i(TAG, "Ethernet network connected: " + mNetworkInfo);
         } else {
             Log.i(TAG, "Ethernet network disconnected: " + mNetworkInfo);
-            Intent intent = new Intent(ACTION_WIFI_NETWORK_DISCONNECTED);
+            Intent broadCastIntent = new Intent(ACTION_WIFI_STATE_CHANGED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_DISCONNECTED);
             if (mNetworkInfo != null) {
-                intent.putExtra(EXTRA_NETWORK_INFO, mNetworkInfo);
-                intent.putExtra(EXTRA_WIFI_INFO, mWifiInfo);
+                broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mNetworkInfo);
+                broadCastIntent.putExtra(EXTRA_WIFI_INFO, mWifiInfo);
             }
-            mContext.sendStickyBroadcast(intent);
+            mContext.sendStickyBroadcast(broadCastIntent);
             mNetworkInfo = null;
         }
     }
@@ -76,5 +79,14 @@ public class WifiNetworkMonitor extends NetworkMonitor.NetStateMachine {
         NetworkRequest.Builder builder = new NetworkRequest.Builder();
         builder.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
         return builder.build();
+    }
+
+    @Override
+    void stop() {
+        if (mContext != null) {
+            Intent broadCastIntent = new Intent(ACTION_WIFI_STATE_CHANGED);
+            mContext.removeStickyBroadcast(broadCastIntent);
+        }
+        super.stop();
     }
 }
