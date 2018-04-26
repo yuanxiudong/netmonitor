@@ -7,36 +7,60 @@ import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_NETWORK_INFO;
 import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_NETWORK_STATE;
 import static com.seagle.android.net.monitor.NetworkMonitor.EXTRA_PRE_NETWORK_INFO;
-import static com.seagle.android.net.monitor.NetworkMonitor.STATE_DISCONNECTED;
-import static com.seagle.android.net.monitor.NetworkMonitor.STATE_CONNECTED;
 
 /**
  * Mobile monitor.
+ * <p>For Mobile network app can monitor the connect state by receive the broadcast {@link #ACTION_MOBILE_STATE_CHANGED}.
  * Created by seagle on 2018/4/23.
+ *
+ * @author yuanxiudong66@sina.com
+ * @since 2018-4-23
  */
 
-public class MobileNetworkMonitor extends NetworkMonitor.NetStateMachine {
+public class MobileNetworkMonitor extends NetStateMachine {
 
     private static final String TAG = "MobileNetworkMonitor";
 
     /**
-     * Mobile network state changed.
-     * App can get the broadcast event mobile network state by extra {@link NetworkMonitor#EXTRA_NETWORK_STATE},if has two state value:<br>
-     * {@link NetworkMonitor#STATE_DISCONNECTED} means current mobile network is disconnect,
-     * if previous state is connected and app can get previous network info by extra {@link NetworkMonitor#EXTRA_PRE_NETWORK_INFO},may be null<br>
-     * {@link NetworkMonitor#STATE_CONNECTED} means current mobile network is connected,app can get current mobile network
-     * info by extra {@link NetworkMonitor#EXTRA_NETWORK_INFO}<br>
+     * Mobile network connect state changed.
+     * Get mobile connect state by broadcast intent#getBooleanExtra({@link NetworkMonitor#EXTRA_NETWORK_STATE},false).<br/>
+     * If current mobile network is connected,app can get current mobile network info by intent#getParcelableExtra({@link NetworkMonitor#EXTRA_NETWORK_STATE}),<br/>
+     * if current mobile network is disconnected and previous state is connected,
+     * app can also get the previous mobile network info by intent#getParcelableExtra({@link NetworkMonitor#EXTRA_PRE_NETWORK_INFO})
+     * and will return null if previous state is disconnected.<br/>
+     *
+     * @see NetworkMonitor#EXTRA_NETWORK_STATE
+     * @see NetworkMonitor#EXTRA_NETWORK_INFO
+     * @see NetworkMonitor#EXTRA_PRE_NETWORK_INFO
      */
     public static final String ACTION_MOBILE_STATE_CHANGED = "com.seagle.android.net.monitor.ACTION_MOBILE_STATE_CONNECTED";
 
+    private volatile TelephonyManager mTelephonyManager;
 
     MobileNetworkMonitor(Context context) {
         super(context);
+    }
+
+    /**
+     * Return TelephonyManager.
+     *
+     * @return TelephonyManager
+     */
+    public TelephonyManager getTelephonyManager() {
+        if (mTelephonyManager == null) {
+            synchronized (this) {
+                if (mTelephonyManager == null) {
+                    mTelephonyManager = (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
+                }
+            }
+        }
+        return mTelephonyManager;
     }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
@@ -47,18 +71,19 @@ public class MobileNetworkMonitor extends NetworkMonitor.NetStateMachine {
         return builder.build();
     }
 
-    protected void notifyWifiState(boolean connected, NetworkInfo networkInfo) {
+    @Override
+    protected void notifyNetworkState(boolean connected, NetworkInfo networkInfo) {
         if (connected) {
             mNetworkInfo = networkInfo;
             Intent broadCastIntent = new Intent(ACTION_MOBILE_STATE_CHANGED);
-            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_CONNECTED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, true);
             broadCastIntent.putExtra(EXTRA_NETWORK_INFO, mNetworkInfo);
             mContext.sendStickyBroadcast(broadCastIntent);
-            Log.i(TAG, "Ethernet network connected: " + mNetworkInfo);
+            Log.i(TAG, "Mobile network connected: " + mNetworkInfo);
         } else {
-            Log.i(TAG, "Ethernet network disconnected: " + mNetworkInfo);
+            Log.i(TAG, "Mobile network disconnected: " + mNetworkInfo);
             Intent broadCastIntent = new Intent(ACTION_MOBILE_STATE_CHANGED);
-            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, STATE_DISCONNECTED);
+            broadCastIntent.putExtra(EXTRA_NETWORK_STATE, false);
             if (mNetworkInfo != null) {
                 broadCastIntent.putExtra(EXTRA_PRE_NETWORK_INFO, mNetworkInfo);
             }
@@ -68,8 +93,8 @@ public class MobileNetworkMonitor extends NetworkMonitor.NetStateMachine {
     }
 
     @Override
-    void stop(){
-        if(mContext != null) {
+    void stop() {
+        if (mContext != null) {
             Intent broadCastIntent = new Intent(ACTION_MOBILE_STATE_CHANGED);
             mContext.removeStickyBroadcast(broadCastIntent);
         }
