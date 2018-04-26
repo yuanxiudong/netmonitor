@@ -160,7 +160,7 @@ public class NetworkMonitor {
      *
      * @return WiFiNetworkMonitor
      */
-    public WiFiNetworkMonitor getWifiNetworkMonitor() {
+    public WiFiNetworkMonitor getWiFiNetworkMonitor() {
         return mWifiStateMachine;
     }
 
@@ -198,6 +198,16 @@ public class NetworkMonitor {
      */
     public boolean isConnected() {
         return (mActiveNetworkInfo != null && mActiveNetworkInfo.isConnected());
+    }
+
+    /**
+     * Return current network info.
+     * Return null if not connected.
+     *
+     * @return NetworkInfo
+     */
+    public NetworkInfo getNetworkInfo() {
+        return mActiveNetworkInfo;
     }
 
     /**
