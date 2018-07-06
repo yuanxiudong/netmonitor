@@ -296,9 +296,6 @@ public class WiFiNetworkMonitor extends NetStateMachine {
                 mNetID = -2;
                 mConnecting = false;
                 mContext.unregisterReceiver(this);
-                if (mResultCode != CONNECT_SUCCESS) {
-                    mWifiManager.reconnect();
-                }
             }
             return mResultCode;
         }
@@ -326,7 +323,6 @@ public class WiFiNetworkMonitor extends NetStateMachine {
                             }
                             mLatch.countDown();
                             mWifiManager.removeNetwork(mNetID);
-                            mWifiManager.reconnect();
                         }
                     }
                 }

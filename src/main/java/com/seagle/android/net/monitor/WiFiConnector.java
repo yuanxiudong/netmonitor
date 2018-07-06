@@ -69,13 +69,21 @@ class WiFiConnector {
     public int connect() {
         WifiConfiguration wifiConfiguration = getExistedConfiguration(mSSID);
         if (wifiConfiguration == null) {
-            wifiConfiguration = getConfig();
+            wifiConfiguration = getConfig(null);
             int netID = mWifiManager.addNetwork(wifiConfiguration);
             if (netID > 0 && mWifiManager.enableNetwork(netID, true)) {
+                mWifiManager.saveConfiguration();
+                mWifiManager.reconnect();
                 return netID;
             }
-        } else if (mWifiManager.enableNetwork(wifiConfiguration.networkId, true)) {
-            return wifiConfiguration.networkId;
+        } else {
+            wifiConfiguration = getConfig(wifiConfiguration);
+            mWifiManager.updateNetwork(wifiConfiguration);
+            if (mWifiManager.enableNetwork(wifiConfiguration.networkId, true)) {
+                mWifiManager.saveConfiguration();
+                mWifiManager.reconnect();
+                return wifiConfiguration.networkId;
+            }
         }
         return -1;
     }
@@ -92,8 +100,8 @@ class WiFiConnector {
         return null;
     }
 
-    private WifiConfiguration getConfig() {
-        WifiConfiguration config = new WifiConfiguration();
+    private WifiConfiguration getConfig(WifiConfiguration existConfig) {
+        WifiConfiguration config = existConfig == null ? new WifiConfiguration() : existConfig;
         if (mScanResult == null) {
             config.SSID = convertToQuotedString(mSSID);
             config.hiddenSSID = true;
@@ -133,11 +141,9 @@ class WiFiConnector {
                     }
                 }
                 break;
-            case SECURITY_EAP: {
+            default: {
                 throw new RuntimeException("EAP network not support.");
             }
-            default:
-                return null;
         }
         return config;
     }
